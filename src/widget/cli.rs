@@ -245,6 +245,11 @@ pub enum SettingsAction {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum AccountAction {
+    /// Inspect current Desktop SSH workers and their authenticated accounts without changing them.
+    RemoteStatus {
+        #[arg(long)]
+        json: bool,
+    },
     /// Register an isolated account and open Claude Code to sign it in.
     Add {
         /// Stable name used by `--account`, the TUI, and desktop apps.

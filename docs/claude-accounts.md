@@ -3,6 +3,50 @@
 ai-usagebar can report several Claude accounts at once. On macOS, it can also
 switch the active login used by Claude Desktop and the `claude` CLI.
 
+## SSH account handoff in the nmatare fork
+
+`account switch LABEL --desktop --yes --backup-sessions` includes remote-worker
+handoff. There is no extra daemon or remote credential store to configure.
+SSH must work non-interactively through the same host, port and identity file
+recorded by Desktop. Remote hosts need Linux procfs, pidfd support and Python
+3.9 or newer; unsupported or unreachable hosts fail the switch before it
+changes the Desktop login.
+
+The switch discovers sessions under the current account and organization,
+joins helper process-start records to live process ownership metadata, and
+checks each worker's own authenticated OAuth account. It preserves Desktop
+indexes and remote transcripts before sending SIGTERM to verified workers
+whose account differs from the target. Same-account token refreshes do not
+cause restarts. It does not signal process groups or background shell jobs,
+copy credentials to the remote host, change Claude's application bundle, or
+rewrite conversations.
+
+After those workers exit, only their volatile reconnect handles are removed
+from the source and destination indexes. Existing session and transcript IDs,
+drafts and all other fields remain. Reopening a session uses Desktop's native
+fresh-worker path with the selected login. Pending/failed requests may need
+their existing **Try again** control; this tool does not send prompts or
+recreate workflows. Reconnection and new inference are not claimed merely
+because an account switch completed. A closed Desktop remains closed.
+
+Use `ai-usagebar account remote-status --json` to inspect current worker
+identities without stopping anything. Local journals live beside profile
+backups as `remote-TRANSACTION.json`; remote before/after transcript backups
+and a per-signal journal live under `~/.claude/backups/ai-usagebar-TRANSACTION/`.
+An interrupted or failed handoff remains recorded, and a later run discovers
+the live workers again rather than replaying stored PIDs. A failed graceful
+stop aborts the switch without escalating to SIGKILL.
+
+This applies to switches made through this fork. A switch made directly in
+Claude or another switcher bypasses this transaction. The updater reads this
+fork's releases, not upstream releases.
+
+For the Linux process integration gate, run
+`python3 tests/remote_handoff_linux.py -v`. It starts disposable test workers
+and background jobs in a temporary directory, verifies ownership/identity
+checks, transcript flushing and same-account preservation, and cleans up its
+own processes. It does not use real Claude credentials or sessions.
+
 ## Choose a setup
 
 | Need | Recommended setup |

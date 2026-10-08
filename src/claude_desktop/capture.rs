@@ -596,6 +596,9 @@ mod tests {
     }
 
     impl AppControl for IncompleteLogin {
+        fn running(&self) -> Result<bool> {
+            Ok(true)
+        }
         fn quit(&self) -> Result<()> {
             self.steps.borrow_mut().push("quit".into());
             if self.relaunches.get() == 1 {

@@ -56,6 +56,9 @@ jobs:
       - name: Test
         run: cargo test --all-targets --locked
 
+      - name: Test SSH worker handoff with isolated Linux processes
+        run: python3 tests/remote_handoff_linux.py -v
+
       - name: Test desktop integration models
         run: make desktop-test
 

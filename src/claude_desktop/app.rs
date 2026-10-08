@@ -17,6 +17,7 @@ use crate::error::{AppError, Result};
 
 /// Host-level effects of a switch.
 pub trait AppControl {
+    fn running(&self) -> Result<bool>;
     /// Stop the Claude Desktop app. Must return only once it is really gone —
     /// its SQLite and LevelDB stores cannot be copied while it is writing them.
     fn quit(&self) -> Result<()>;
@@ -107,34 +108,6 @@ pub fn is_running() -> Result<bool> {
     query_running_with(Path::new("/usr/bin/osascript"))
 }
 
-/// The app's main process id, for the force-quit fallbacks. `pkill -x Claude`
-/// misses it for the same reason `pgrep` does, so match the executable path
-/// out of `ps` instead — the helper processes have distinct paths and are
-/// deliberately left alone, since quitting the main process takes them with it.
-fn main_pid() -> Option<String> {
-    const MAIN_EXECUTABLE: &str = "/Claude.app/Contents/MacOS/Claude";
-
-    let output = Command::new("/bin/ps")
-        .args(["-Ao", "pid=,comm="])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .find_map(|line| {
-            let (pid, command) = line.trim().split_once(char::is_whitespace)?;
-            command
-                .trim()
-                .ends_with(MAIN_EXECUTABLE)
-                .then(|| pid.to_string())
-        })
-}
-
-fn signal_main(signal: &str) {
-    if let Some(pid) = main_pid() {
-        let _ = Command::new("/bin/kill").args([signal, &pid]).output();
-    }
-}
-
 fn wait_until_stopped_with(
     mut probe: impl FnMut() -> Result<bool>,
     mut pause: impl FnMut(),
@@ -153,30 +126,30 @@ fn wait_until_stopped() -> Result<bool> {
 }
 
 impl AppControl for DesktopApp {
+    fn running(&self) -> Result<bool> {
+        is_running()
+    }
+
     fn quit(&self) -> Result<()> {
-        // Graceful first so the app tears down its own child processes; the
-        // signals are the fallback for a hung app. Neither touches a `claude`
-        // CLI process: the AppleScript targets the Claude application, and the
-        // signals go to one pid matched on the app bundle's executable path.
-        let _ = Command::new("/usr/bin/osascript")
-            .args(["-e", "tell application \"Claude\" to quit"])
-            .output();
+        if !is_running()? {
+            return Ok(());
+        }
+        let output = Command::new("/usr/bin/osascript")
+            .args([
+                "-e",
+                "with timeout of 20 seconds\ntell application \"Claude\" to quit\nend timeout",
+            ])
+            .output()?;
+        if !output.status.success() {
+            return Err(AppError::Other("Claude Desktop did not accept a graceful quit; no forced restart or account switch was attempted".into()));
+        }
         std::thread::sleep(QUIT_GRACE);
         if wait_until_stopped()? {
             return Ok(());
         }
-        signal_main("-TERM");
-        if wait_until_stopped()? {
-            return Ok(());
-        }
-        signal_main("-KILL");
-        if wait_until_stopped()? {
-            Ok(())
-        } else {
-            Err(AppError::Other(
-                "Claude Desktop did not stop; no account data was changed".into(),
-            ))
-        }
+        Err(AppError::Other(
+            "Claude Desktop did not stop gracefully; no account data was changed".into(),
+        ))
     }
 
     fn relaunch(&self) -> Result<()> {
@@ -277,6 +250,9 @@ impl Recorder {
 }
 
 impl AppControl for Recorder {
+    fn running(&self) -> Result<bool> {
+        Ok(true)
+    }
     fn quit(&self) -> Result<()> {
         self.record("quit");
         Ok(())

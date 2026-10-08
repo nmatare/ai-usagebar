@@ -1,5 +1,11 @@
 # ai-usagebar
 
+This fork adds [Claude Desktop SSH account handoff](docs/claude-accounts.md#ssh-account-handoff-in-the-nmatare-fork).
+Desktop switches verify remote worker identities and retire workers from the
+previous account before native reconnection. `account remote-status --json`
+checks actual worker accounts. Pending requests may still need **Try again**;
+switching outside this tool bypasses the handoff.
+
 Native Omarchy Quattro panel, Waybar widget, and tabbed TUI for AI plan usage across **Claude**, **Codex/ChatGPT**, **GitHub Copilot**, **Z.AI (GLM)**, **OpenRouter**, **DeepSeek**, **DeepInfra**, **Kimi**, **Nous Research**, **OpenCode Go**, **Command Code**, and other supported AI coding services.
 
 ai-usagebar began as a Rust port of

@@ -9,6 +9,14 @@ Each release is also published at
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop account switches now inspect Linux SSH workers using the current account's session indexes, verify helper ownership and authenticated account identity, preserve transcripts, and gracefully stop workers from another account before replacing reconnect metadata. Unknown identities fail the switch before login changes; same-account workers remain alive. An already closed Desktop stays closed, and a failed graceful quit never escalates to a forced kill.
+
+### Added
+
+- `account remote-status --json` reports actual SSH worker accounts independently of Desktop's login. Handoff journals distinguish stopped workers from sessions still awaiting native reconnection; pending requests are never automatically resubmitted.
+
 ## [1.32.0] — 2026-10-04
 
 ### Added

@@ -43,6 +43,7 @@ impl Registered {
 #[must_use]
 pub fn run(action: &AccountAction) -> i32 {
     match action {
+        AccountAction::RemoteStatus { json } => remote_status(*json),
         AccountAction::Add {
             label,
             no_login,
@@ -95,6 +96,45 @@ pub fn run(action: &AccountAction) -> i32 {
             from,
             dry_run,
         } => merge_history(data_dir, from, *dry_run),
+    }
+}
+
+fn remote_status(json: bool) -> i32 {
+    let result = (|| {
+        let config = Config::load()?;
+        let paths = Paths::resolve(&config.anthropic)?;
+        let _lock = crate::cache::acquire_lock(
+            &paths.account_switch_lock(),
+            claude_desktop::ACCOUNT_LOCK_TIMEOUT,
+        )?;
+        claude_desktop::remote::status(&paths)
+    })();
+    match result {
+        Ok(status) => {
+            if json {
+                match serde_json::to_string_pretty(&status) {
+                    Ok(value) => println!("{value}"),
+                    Err(error) => {
+                        eprintln!("ai-usagebar account remote-status: {}", printable(&error));
+                        return 1;
+                    }
+                }
+            } else {
+                for worker in &status.workers {
+                    println!(
+                        "{}  {}  {}",
+                        printable(&worker["session_id"].as_str().unwrap_or("unknown")),
+                        printable(&worker["state"].as_str().unwrap_or("unknown")),
+                        printable(&worker["account_uuid"].as_str().unwrap_or("no live worker"))
+                    );
+                }
+            }
+            0
+        }
+        Err(error) => {
+            eprintln!("ai-usagebar account remote-status: {}", printable(&error));
+            1
+        }
     }
 }
 
@@ -975,10 +1015,7 @@ fn switch_desktop(config: &Config, args: &SwitchArgs, tolerant: bool) -> Result<
     for note in &notes {
         println!("  note: {}", printable(&note));
     }
-    println!(
-        "  switched — the app is reopening as {:?}.",
-        plan.target.label
-    );
+    println!("  switched Desktop login to {:?}.", plan.target.label);
     Ok(true)
 }
 

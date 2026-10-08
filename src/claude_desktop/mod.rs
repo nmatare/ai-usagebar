@@ -22,6 +22,7 @@
 pub mod app;
 pub mod capture;
 pub mod merge;
+pub mod remote;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -726,10 +727,15 @@ pub fn apply_history_merge(paths: &Paths, plan: &HistoryMerge) -> Result<Vec<Str
 /// from that archive before relaunching.
 pub fn apply_switch(paths: &Paths, plan: &SwitchPlan, app: &dyn AppControl) -> Result<Vec<String>> {
     let mut notes = Vec::new();
-    let members: Vec<&str> = plan.archive_members.iter().map(String::as_str).collect();
+    let mut remote = remote::Handoff::for_switch(paths, plan)?;
+    let was_running = app.running()?;
+    let mut members: Vec<&str> = plan.archive_members.iter().map(String::as_str).collect();
+    if remote.is_some() && paths.sessions_root().exists() && !members.contains(&SESSIONS_DIR) {
+        members.push(SESSIONS_DIR);
+    }
 
     // Stop before archiving so SQLite/LevelDB and config.json are quiescent.
-    if let Err(error) = app.quit() {
+    if let Err(error) = if was_running { app.quit() } else { Ok(()) } {
         // A fail-closed liveness probe can report an error after the graceful
         // quit request already stopped Claude. Relaunch is harmless if it was
         // still running and preserves the invariant that an attempted switch
@@ -754,7 +760,15 @@ pub fn apply_switch(paths: &Paths, plan: &SwitchPlan, app: &dyn AppControl) -> R
                 &mut notes,
             );
         }
-        apply_switch_while_stopped(paths, plan, &mut notes)
+        if let Some(handoff) = &mut remote {
+            handoff.stop(paths)?;
+        }
+        apply_switch_while_stopped(paths, plan, &mut notes)?;
+        if let Some(handoff) = &mut remote {
+            let count = handoff.detach(paths)?;
+            notes.push(format!("reset {count} stopped SSH reconnect record(s); reopen those sessions to reconnect with the selected login. Pending requests may need Try again."));
+        }
+        Ok(())
     })();
 
     if result.is_err()
@@ -767,9 +781,15 @@ pub fn apply_switch(paths: &Paths, plan: &SwitchPlan, app: &dyn AppControl) -> R
         )));
     }
 
-    let relaunch = app.relaunch();
+    let relaunch = if was_running { app.relaunch() } else { Ok(()) };
     match (result, relaunch) {
-        (Ok(()), Ok(())) => Ok(notes),
+        (Ok(()), Ok(())) => {
+            if let Some(handoff) = &mut remote {
+                let (verified, pending) = handoff.verify(paths)?;
+                notes.push(format!("SSH account verification: {verified} reconnected worker(s) verified; {pending} session(s) awaiting native reconnect. No prompts were sent."));
+            }
+            Ok(notes)
+        }
         (Err(error), Ok(())) => Err(error),
         (Ok(()), Err(error)) => Err(error),
         (Err(error), Err(relaunch)) => Err(AppError::Other(format!(
@@ -1330,6 +1350,9 @@ mod tests {
     }
 
     impl AppControl for QuitFailure {
+        fn running(&self) -> Result<bool> {
+            Ok(true)
+        }
         fn quit(&self) -> Result<()> {
             self.steps.borrow_mut().push("quit");
             Err(AppError::Other("liveness probe failed".into()))
