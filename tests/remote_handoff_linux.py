@@ -118,6 +118,13 @@ while True:time.sleep(1)
             handoff.stop(request, self.home, self.proc, self.identity)
         self.assertIsNone(worker.poll())
         document['argv0'] = str(self.executable)
+        actual_start = document['start']
+        document['start'] = str(int(actual_start) + 1)
+        metadata.write_text(json.dumps(document))
+        with self.assertRaisesRegex(handoff.HandoffError, 'start time disagrees'):
+            handoff.stop(request, self.home, self.proc, self.identity)
+        self.assertIsNone(worker.poll())
+        document['start'] = actual_start
         metadata.write_text(json.dumps(document))
         unknown, _, _ = self.spawn('unknown-token')
         with self.assertRaisesRegex(handoff.HandoffError, 'unknown account'):

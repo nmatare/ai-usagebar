@@ -69,6 +69,8 @@ def live_worker(home, proc_root, runtime, remote_id, pid, uid, node):
                 'helper ownership record is not a regular file')
         meta = json.loads(meta_path.read_text())
         if meta['start'] != start:
+            require(Path(os.readlink(proc / 'exe')).parent != home / '.claude/remote/ccd-cli',
+                    'live Claude worker start time disagrees with helper ownership record')
             return None
         executable = os.readlink(proc / 'exe')
         require(proc.stat().st_uid == uid and meta_path.stat().st_uid == uid,
